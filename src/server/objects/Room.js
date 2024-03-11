@@ -41,6 +41,35 @@ export default class Room {
   }
 
   /**
+   * Get the previous player in the order of play.
+   *
+   * @return - The previous player in the order of play.
+   */
+  getPreviousPlayer() {
+    // Grab the size of the player order array so we can target the player first
+    // in order.
+    const playerFirstOrder = 0;
+    const playerLastOrder = this.players.length - 1;
+
+    if (this.reverseDirection) {
+      // If the game direction is reversed, moving to the "previous" player
+      // actually moves us forward in the normal order.
+      // If the player last in order has played, reset back to first player.
+      // Otherwise, move to the next player in order.
+      this.playerTurn === playerLastOrder ? this.playerTurn = playerFirstOrder : this.playerTurn++;
+    }
+    else {
+      // If the game direction is not reversed, moving to the "previous" player
+      // means we move back in the normal order.
+      // If the player first in order has played, reset to the last player.
+      // Otherwise, move to the previous player in order.
+      this.playerTurn === playerFirstOrder ? this.playerTurn = playerLastOrder : this.playerTurn--;
+    }
+
+    return this.players[this.playerTurn];
+  }
+
+  /**
    * Remove a player from the player order array.
    *
    * @param {string} id - socket id of the player to remove from the game.

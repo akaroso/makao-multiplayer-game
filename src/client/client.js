@@ -4,8 +4,8 @@ import MainMenuScene from './scenes/MainMenuScene';
 import PlayerSetupScene from './scenes/PlayerSetupScene';
 
 const config = {
-  title:    'Crazy 8 Smackdown',
-  version:  '1.2',
+  title:    'Makao multiplayer game',
+  version:  '1.3',
   type:     Phaser.AUTO,
   parent:   'game',
   backgroundColor: '#F5F5F5',

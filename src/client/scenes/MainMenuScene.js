@@ -53,7 +53,7 @@ export default class MainMenuScene extends Phaser.Scene {
    * Add title text to the scene.
    */
   addTitleText() {
-    const titleText = this.add.dom(this.camera.centerX, this.camera.centerY - 200, 'div', 'font-size: 27px', 'CRAZY 8 SMACKDOWN');
+    const titleText = this.add.dom(this.camera.centerX, this.camera.centerY - 200, 'div', 'font-size: 27px', 'MAKAO MULTIPLAYER GAME');
     titleText.setClassName('title-menu');
   }
 

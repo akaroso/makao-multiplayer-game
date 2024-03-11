@@ -18,6 +18,8 @@ const app = Express();
 const server = Http.Server(app);
 const io = SocketIO(server);
 const port = process.env.PORT || 3000;
+const fs = require('fs');
+const path = require('path');
 
 // Fire up Helmet and Compression for better Express security and performance.
 app.use(Helmet());
@@ -47,6 +49,7 @@ function setServerHandlers() {
     socket.on('new game', onNewGame);
     socket.on('join request', onJoinRequest);
     socket.on('new player', onNewPlayer);
+    socket.on('bot added', onBotAdded);
     socket.on('player ready', onPlayerReady);
     socket.on('game start', onGameStart);
     socket.on('card played', onCardPlayed);
@@ -153,6 +156,42 @@ function onNewPlayer(playerObj, roomCode) {
 
   // Broadcast new player to other new players.
   this.broadcast.to(roomCode).emit('new player', this.player);
+}
+
+/**
+ * Notify others that a new bot has connected.
+ *
+ * Send the client back a list of existing players in the room.
+ */
+function onBotAdded(playerObj, roomCode) {
+  const filePath = './public/assets/json/textureMap.json';
+  const loadedTextureMap = loadTextureMapFromFile(filePath);
+
+  this.player = new Player(this.id+'bot', 'Bot', roomCode, loadedTextureMap, true);
+
+  this.emit('get players', getPlayersInRoom(roomCode));
+
+  // Add player to the room's players array.
+  rooms[roomCode].players.push(this.player);
+  this.player.ready = true;
+
+  // Broadcast new player to other new players.
+  this.broadcast.to(roomCode).emit('new player', this.player);
+
+  // Let everyone else know the player is ready.
+  this.broadcast.to(roomCode).emit('show player ready', this.player);
+}
+
+// Funkcja do zapisywania textureMap do pliku
+function saveTextureMapToFile(textureMap, filePath) {
+  const data = JSON.stringify(textureMap);
+  fs.writeFileSync(filePath, data, 'utf8');
+}
+
+// Funkcja do odczytywania textureMap z pliku
+function loadTextureMapFromFile(filePath) {
+  const data = fs.readFileSync(filePath, 'utf8');
+  return JSON.parse(data);
 }
 
 /**
@@ -298,8 +337,8 @@ function onCardPlayed(card, wildcardSuit = false) {
     this.broadcast.to(roomCode).emit('game message', `${this.player.name} REVERSED THE DIRECTION PLAY`);
   }
 
-  // If a jack was played skip the next players turn.
-  if (card.value === 'j') {
+  // If a 4 was played skip the next players turn.
+  if (card.value === '4') {
     // Skip the next player, get the name of the skipped player.
     const skippedPlayer = rooms[roomCode].getNextPlayer();
 
@@ -313,16 +352,27 @@ function onCardPlayed(card, wildcardSuit = false) {
   // Grab the next player to play.
   const player = rooms[roomCode].getNextPlayer();
 
-  // If a queen of spades was played, deal 5 cards to the next player.
-  if (card.name === 'q of spades') {
+  // If a king of spades was played, deal 5 cards to the previous player.
+  if (card.name === 'k of spades') {
+    const player = rooms[roomCode].getPreviousPlayer();
     io.to(player.id).emit('game message', 'PICKUP 5 CARDS')
     dealCardsToPlayer(player, 5);
   }
 
-  // If a 2 was played, deal two cards to the next player.
-  if (card.value === '2') {
-    io.to(player.id).emit('game message', 'PICKUP 2 CARDS')
-    dealCardsToPlayer(player, 2);
+  // If a king of spades was played, deal 5 cards to the next player.
+  if (card.name === 'k of hearts') {
+    io.to(player.id).emit('game message', 'PICKUP 5 CARDS')
+    dealCardsToPlayer(player, 5);
+  }
+
+
+  //If a 2 or 3 was played, deal two cards to the next player.
+  if (card.value === '2' || card.value === '3') {
+    const cardsToDraw = (card.value === '2') ? 2 : 3; // 2 karty dla dwójki, 3 dla trójki
+
+    // Informowanie następnego gracza, że musi dobrać karty
+    io.to(player.id).emit('game message', `PICKUP ${cardsToDraw} CARDS`);
+    dealCardsToPlayer(player, cardsToDraw);
   }
 
   // Notify everyone who is going to play next.
@@ -612,8 +662,10 @@ function checkCardPlayable(card, currentCardInPlay, player) {
     card.value == currentCardInPlay.value ||
     // Check if the card is wild (wildcard = countdown score).
     card.value == player.countdown ||
-    // Special case for aces since 'a' isn't a real number.
-    (player.countdown == 1 && card.value == 'a');
+    // Special case for aces since 'a' isn't a real number. do usuniecia
+    (player.countdown == 1 && card.value == 'a') ||
+    //queens
+    card.value == 'q';        
 
   return isPlayable;
 }

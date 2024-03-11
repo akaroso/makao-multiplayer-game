@@ -57,6 +57,11 @@ export default class GameScene extends Phaser.Scene {
       this.onNewPlayer(playerObj);
     });
 
+    // Handle new player connections.
+    this.socket.on('bot added', (playerObj) => {
+      this.onBotAdded(playerObj, this.socket.roomCode);
+    });
+
     // Show all the other players.
     this.socket.on('get players', (playerObjs) => {
       this.onGetPlayers(playerObjs);
@@ -163,6 +168,9 @@ export default class GameScene extends Phaser.Scene {
     // Show a clickable send message button.
     this.addPlayerMessageButton();
 
+    // Show a clickable add bot button.
+    this.showBotButton();
+
     // Add a lobby text bubble to the scene.
     this.addLobbyText();
 
@@ -195,6 +203,23 @@ export default class GameScene extends Phaser.Scene {
     this.showGameMessage(`${playerObj.name} HAS CONNECTED`);
     this.showReadyButton();
   }
+
+    /**
+   * When a player connects to the room, add them to the game client.
+   */
+    onBotAdded(playerObj) {
+      const player = new Player(this, this.getPlayerStartingX(), this.getGridColumnPosition(1), 444, 'bot', []);
+      this.players.push(player);
+  
+      // Draw player avatar
+      this.drawPlayerAvatar(player);
+  
+      // Update lobby text with either player count or a lobby message.
+      this.updateLobbyText();
+  
+      this.showGameMessage(`${'bot'} HAS CONNECTED`);
+      this.showReadyButton();
+    }
 
   /**
    * Get players that are already connected to the room the client has joined.
@@ -388,7 +413,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Play an explosion sound when the queen of spades is played (pickup 5).
-    if (cardObj.name === 'q of spades') {
+    if (cardObj.name === 'k of spades' || cardObj.name === 'k of hearts') {
       this.sound.play('explosion');
     }
 
@@ -785,6 +810,9 @@ export default class GameScene extends Phaser.Scene {
       card.value == this.currentCardInPlay.value ||
       // Check if the card is wild (wildcard = countdown score).
       card.value == this.player.countdown ||
+      //Dama na wszystko wszystko na dame
+      card.value == 'q' ||
+      //this.currentCardInPlay.value == 'q' ||
       // Check if the countdown is at one (wildcard is ace and 'a' != 1).
       (this.player.countdown == 1 && card.value == 'a');
 
@@ -1056,6 +1084,30 @@ export default class GameScene extends Phaser.Scene {
     this.playerMessageButton.on('click', () => {
       this.showPlayerMessageInput();
     });
+  }
+
+  showBotButton() {
+    if (this.players.length < 4) 
+    {
+      console.log(this.player);
+      // If the button isn't present add it to the scene
+      if (!this.botButton && !this.player.ready) {
+        this.botButton = this.add.dom(this.getGridRowPosition(3), this.getGridColumnPosition(4) - 140, 'button', 'font-size: 16px;', 'Add bot player');
+        this.botButton.setClassName('game-button');
+        this.botButton.addListener('click');
+
+        this.botButton.on('click', () => {
+         this.socket.emit('bot added', this.player, this.socket.roomCode);
+         //this.player.addBotText();
+         this.botButton.destroy();
+         this.botButton = false;
+        });    
+      }
+    }
+    else
+    {
+      this.botButton.destroy();
+    }
   }
 
   /**

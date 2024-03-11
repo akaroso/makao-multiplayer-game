@@ -13,8 +13,9 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.textureMap = textureMap;
 
     this.hand = [];
-    this.countdown = 8;
+    this.countdown = 1;
     this.ready = false;
+    this.isBot = false;
 
     this.setScale(0.25);
 
@@ -54,6 +55,14 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.readyText = this.scene.add.dom(this.x, this.y - 90, 'div', 'font-size: 14px;', 'READY');
     this.readyText.setClassName('status');
   }
+
+  /**
+   * Add text to show player is ready to smack down.
+   */
+    addBotText() {
+      this.botText = this.scene.add.dom(this.x, this.y - 90, 'div', 'font-size: 14px;', 'Computer Player added');
+      this.botText.setClassName('bot');
+    }
 
   /**
    * Remove ready text to show player is unready to smack down.
