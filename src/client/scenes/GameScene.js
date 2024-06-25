@@ -54,12 +54,12 @@ export default class GameScene extends Phaser.Scene {
 
     // Handle new player connections.
     this.socket.on('new player', (playerObj) => {
+      console.log(playerObj);
       this.onNewPlayer(playerObj);
-    });
 
-    // Handle new player connections.
-    this.socket.on('bot added', (playerObj) => {
-      this.onBotAdded(playerObj, this.socket.roomCode);
+      if (playerObj.isBot) {
+        this.socket.emit('player ready');
+      }
     });
 
     // Show all the other players.
@@ -120,7 +120,7 @@ export default class GameScene extends Phaser.Scene {
       this.onUpdateCardInPlay(cardObj);
     });
 
-    // Update a player's countdown score.
+    // Update a player's cou ntdown score.
     this.socket.on('update countdown score', (playerObj) => {
       this.onUpdateCountdownScore(playerObj);
     });
@@ -168,9 +168,6 @@ export default class GameScene extends Phaser.Scene {
     // Show a clickable send message button.
     this.addPlayerMessageButton();
 
-    // Show a clickable add bot button.
-    this.showBotButton();
-
     // Add a lobby text bubble to the scene.
     this.addLobbyText();
 
@@ -183,6 +180,9 @@ export default class GameScene extends Phaser.Scene {
         this.showPlayerMessageInput();
       }
     });
+    if (this.socket.creator && this.gameStarted == false) {
+    this.addBotButton(); // Add this line
+    }
   }
 
   update() { }
@@ -191,7 +191,7 @@ export default class GameScene extends Phaser.Scene {
    * When a player connects to the room, add them to the game client.
    */
   onNewPlayer(playerObj) {
-    const player = new Player(this, this.getPlayerStartingX(), this.getGridColumnPosition(1), playerObj.id, playerObj.name, playerObj.textureMap);
+    const player = new Player(this, this.getPlayerStartingX(), this.getGridColumnPosition(1), playerObj.id, playerObj.name, playerObj.textureMap, playerObj.isBot);
     this.players.push(player);
 
     // Draw player avatar
@@ -202,24 +202,13 @@ export default class GameScene extends Phaser.Scene {
 
     this.showGameMessage(`${playerObj.name} HAS CONNECTED`);
     this.showReadyButton();
-  }
 
-    /**
-   * When a player connects to the room, add them to the game client.
-   */
-    onBotAdded(playerObj) {
-      const player = new Player(this, this.getPlayerStartingX(), this.getGridColumnPosition(1), 444, 'bot', []);
-      this.players.push(player);
-  
-      // Draw player avatar
-      this.drawPlayerAvatar(player);
-  
-      // Update lobby text with either player count or a lobby message.
-      this.updateLobbyText();
-  
-      this.showGameMessage(`${'bot'} HAS CONNECTED`);
-      this.showReadyButton();
+    if (player.isBot) {
+      player.setReady();
     }
+
+    this.updatePlayerUI(player);
+  }
 
   /**
    * Get players that are already connected to the room the client has joined.
@@ -382,6 +371,12 @@ export default class GameScene extends Phaser.Scene {
   onGameStarted() {
     this.gameStarted = true;
 
+    if (this.botButton) {
+      this.botButton.destroy();
+      this.botButton = null; // Ensure the reference is cleared
+    }
+    
+
     // Ring the bell, the match has begun.
     this.sound.play('bell');
 
@@ -413,7 +408,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Play an explosion sound when the queen of spades is played (pickup 5).
-    if (cardObj.name === 'k of spades' || cardObj.name === 'k of hearts') {
+    if (cardObj.name === 'q of spades') {
       this.sound.play('explosion');
     }
 
@@ -1086,30 +1081,6 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  showBotButton() {
-    if (this.players.length < 4) 
-    {
-      console.log(this.player);
-      // If the button isn't present add it to the scene
-      if (!this.botButton && !this.player.ready) {
-        this.botButton = this.add.dom(this.getGridRowPosition(3), this.getGridColumnPosition(4) - 140, 'button', 'font-size: 16px;', 'Add bot player');
-        this.botButton.setClassName('game-button');
-        this.botButton.addListener('click');
-
-        this.botButton.on('click', () => {
-         this.socket.emit('bot added', this.player, this.socket.roomCode);
-         //this.player.addBotText();
-         this.botButton.destroy();
-         this.botButton = false;
-        });    
-      }
-    }
-    else
-    {
-      this.botButton.destroy();
-    }
-  }
-
   /**
    * Add room code button to the scene.
    */
@@ -1151,6 +1122,23 @@ export default class GameScene extends Phaser.Scene {
       this.socket.emit('draw card');
       this.drawCardButton.destroy();
     });
+  }
+
+  addBotButton() {
+    this.botButton = this.add.dom(this.getGridRowPosition(3), this.getGridColumnPosition(4) - 80, 'button', 'font-size: 16px;', 'ADD BOT');
+    this.botButton.setClassName('game-button');
+    this.botButton.addListener('click');
+  
+    this.botButton.on('click', () => {
+      this.socket.emit('add bot', this.socket.roomCode);
+    });
+  }
+
+  updatePlayerUI(player) {
+    if (player.ready) {
+      player.addReadyText();
+    }
+    // Add other UI update logic if necessary
   }
 
   /**

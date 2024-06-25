@@ -5,7 +5,7 @@ import Phaser from 'phaser';
  */
 export default class Player extends Phaser.GameObjects.Sprite {
 
-  constructor(scene, x, y, id, name, textureMap) {
+  constructor(scene, x, y, id, name, textureMap, isBot = false) {
     super(scene, x, y);
 
     this.id = id;
@@ -15,7 +15,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.hand = [];
     this.countdown = 1;
     this.ready = false;
-    this.isBot = false;
+    this.isBot = isBot; // Default is not a bot
 
     this.setScale(0.25);
 
@@ -24,6 +24,14 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.nameText.setClassName('name');
 
     this.scene.add.existing(this);
+  }
+
+  setReady() {
+    this.ready = true;
+    if (!this.isBot) {
+      this.readyText = this.scene.add.dom(this.x, this.y - 90, 'div', 'font-size: 14px;', 'READY');
+      this.readyText.setClassName('status');
+    }
   }
 
   /**
@@ -55,14 +63,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.readyText = this.scene.add.dom(this.x, this.y - 90, 'div', 'font-size: 14px;', 'READY');
     this.readyText.setClassName('status');
   }
-
-  /**
-   * Add text to show player is ready to smack down.
-   */
-    addBotText() {
-      this.botText = this.scene.add.dom(this.x, this.y - 90, 'div', 'font-size: 14px;', 'Computer Player added');
-      this.botText.setClassName('bot');
-    }
 
   /**
    * Remove ready text to show player is unready to smack down.

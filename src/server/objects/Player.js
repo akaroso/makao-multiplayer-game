@@ -3,7 +3,7 @@
  */
 export default class Player {
 
-  constructor(id, name, roomCode, textureMap, isBot = false) {
+  constructor(id, name, roomCode, textureMap) {
     this.id = id;
     this.name = name;
     this.roomCode = roomCode;
@@ -12,7 +12,6 @@ export default class Player {
     this.hand = [];
     this.countdown = 1;
     this.ready = false;
-    this.isBot = isBot;
   }
 
   /**

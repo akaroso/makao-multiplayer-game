@@ -107,6 +107,7 @@ export default class MainMenuScene extends Phaser.Scene {
 
       if (playerName !== '') {
         this.socket.name = playerName.toUpperCase();
+        this.socket.creator = true;
 
         // If the user provides a room code, lets just go with that one.
         if (roomCode !== '') {

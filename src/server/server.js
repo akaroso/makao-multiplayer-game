@@ -9,6 +9,7 @@ import Compression from 'compression';
 import Room from './objects/Room';
 import Deck from './objects/Deck';
 import Player from './objects/Player';
+import BotPlayer from './objects/BotPlayer';
 
 // Array to track active rooms.
 let rooms = [];
@@ -18,8 +19,6 @@ const app = Express();
 const server = Http.Server(app);
 const io = SocketIO(server);
 const port = process.env.PORT || 3000;
-const fs = require('fs');
-const path = require('path');
 
 // Fire up Helmet and Compression for better Express security and performance.
 app.use(Helmet());
@@ -49,7 +48,7 @@ function setServerHandlers() {
     socket.on('new game', onNewGame);
     socket.on('join request', onJoinRequest);
     socket.on('new player', onNewPlayer);
-    socket.on('bot added', onBotAdded);
+    socket.on('add bot', onAddBot);
     socket.on('player ready', onPlayerReady);
     socket.on('game start', onGameStart);
     socket.on('card played', onCardPlayed);
@@ -105,6 +104,38 @@ function onNewGame(roomCode) {
 }
 
 /**
+ * Handle adding a bot to the game.
+ */
+function onAddBot(roomCode) {
+  if (rooms[roomCode]) {
+    const botSocket = {
+      emit: (event, data) => {
+        console.log(`Bot emitting event ${event} with data:`, data);
+        io.to(roomCode).emit(event, data); // here
+
+        const player = rooms[roomCode].getNextPlayer();
+        console.log('---------------------------------');
+      },
+      id: `bot-${Date.now()}`
+    };
+
+    const bot = new BotPlayer(botSocket.id, 'Bot', roomCode, [], botSocket);
+    bot.ready = true;
+    rooms[roomCode].players.push(bot);
+    io.in(roomCode).emit('new player', bot);
+
+    if (checkAllPlayersReady(roomCode)) {
+      io.in(roomCode).emit('start countdown');
+      rooms[roomCode].countdownStarted = true;
+
+      for (let player of getPlayersInRoom(roomCode)) {
+        player.textureMap = [];
+      }
+    }
+  }
+}
+
+/**
  * Handle joining an existing game.
  */
 function onJoinRequest(roomCode) {
@@ -146,7 +177,8 @@ function onJoinRequest(roomCode) {
  * Send the client back a list of existing players in the room.
  */
 function onNewPlayer(playerObj, roomCode) {
-  this.player = new Player(this.id, playerObj.name, roomCode, playerObj.textureMap);
+  const player = new Player(this.id, playerObj.name, roomCode, playerObj.textureMap);
+  this.player = player;
 
   // Build up a list of all current players, send the data to the client.
   this.emit('get players', getPlayersInRoom(roomCode));
@@ -156,42 +188,6 @@ function onNewPlayer(playerObj, roomCode) {
 
   // Broadcast new player to other new players.
   this.broadcast.to(roomCode).emit('new player', this.player);
-}
-
-/**
- * Notify others that a new bot has connected.
- *
- * Send the client back a list of existing players in the room.
- */
-function onBotAdded(playerObj, roomCode) {
-  const filePath = './public/assets/json/textureMap.json';
-  const loadedTextureMap = loadTextureMapFromFile(filePath);
-
-  this.player = new Player(this.id+'bot', 'Bot', roomCode, loadedTextureMap, true);
-
-  this.emit('get players', getPlayersInRoom(roomCode));
-
-  // Add player to the room's players array.
-  rooms[roomCode].players.push(this.player);
-  this.player.ready = true;
-
-  // Broadcast new player to other new players.
-  this.broadcast.to(roomCode).emit('new player', this.player);
-
-  // Let everyone else know the player is ready.
-  this.broadcast.to(roomCode).emit('show player ready', this.player);
-}
-
-// Funkcja do zapisywania textureMap do pliku
-function saveTextureMapToFile(textureMap, filePath) {
-  const data = JSON.stringify(textureMap);
-  fs.writeFileSync(filePath, data, 'utf8');
-}
-
-// Funkcja do odczytywania textureMap z pliku
-function loadTextureMapFromFile(filePath) {
-  const data = fs.readFileSync(filePath, 'utf8');
-  return JSON.parse(data);
 }
 
 /**
@@ -531,7 +527,6 @@ function onDisconnect() {
  */
 function checkAllPlayersReady(roomCode) {
   const players = getPlayersInRoom(roomCode);
-  const sockets = getSocketsInRoom(roomCode);
 
   let ready = true;
 
@@ -547,14 +542,6 @@ function checkAllPlayersReady(roomCode) {
   else {
     ready = false;
   }
-
-  // Check to see if any players are still drawing their avatar by comparing
-  // the number of sockets in the room vs. players in the room (a player object
-  // isn't created until the GameScene, so this is pretty hacky).
-  if (players.length !== sockets.length) {
-    ready = false;
-  }
-
   return ready;
 }
 
@@ -596,21 +583,7 @@ function getSocketsInRoom(roomCode) {
  * Return all players currently connected to a room.
  */
 function getPlayersInRoom(roomCode) {
-  const players = [];
-
-  // Check to see if anyone is even in the room.
-  if (io.sockets.adapter.rooms[roomCode] !== undefined) {
-    // Loop over sockets connected to a room, return all players found.
-    Object.keys(io.sockets.adapter.rooms[roomCode].sockets).forEach(socket => {
-      const player = io.sockets.connected[socket].player;
-
-      if (player) {
-        players.push(player);
-      }
-    });
-  }
-
-  return players;
+  return rooms[roomCode] ? rooms[roomCode].players : [];
 }
 
 /**
