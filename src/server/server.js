@@ -48,7 +48,7 @@ function setServerHandlers() {
     socket.on('new game', onNewGame);
     socket.on('join request', onJoinRequest);
     socket.on('new player', onNewPlayer);
-    socket.on('add bot', onAddBot);
+    socket.on('add bot', (roomCode) => onAddBot(socket, roomCode)); // zmiana tutajj
     socket.on('player ready', onPlayerReady);
     socket.on('game start', onGameStart);
     socket.on('card played', onCardPlayed);
@@ -106,15 +106,12 @@ function onNewGame(roomCode) {
 /**
  * Handle adding a bot to the game.
  */
-function onAddBot(roomCode) {
+function onAddBot(socket, roomCode) {
   if (rooms[roomCode]) {
     const botSocket = {
       emit: (event, data) => {
         console.log(`Bot emitting event ${event} with data:`, data);
-        io.to(roomCode).emit(event, data); // here
-
-        const player = rooms[roomCode].getNextPlayer();
-        console.log('---------------------------------');
+        io.to(roomCode).emit(event, data);
       },
       id: `bot-${Date.now()}`
     };
@@ -227,44 +224,38 @@ function onGameStart() {
   rooms[roomCode].startGameCounter++;
 
   if (rooms[roomCode].startGameCounter === rooms[roomCode].players.length) {
-    // Flag that the room's game has started.
     rooms[roomCode].gameStarted = true;
-
-    // Notify everyone that the game has started.
     io.in(roomCode).emit('game started');
-
-    // Determine the player order.
     rooms[roomCode].players = shufflePlayerOrder(roomCode);
-
     const firstPlayer = rooms[roomCode].players[0];
-
-    // Notify all players who's turn it is.
     io.in(roomCode).emit('show player turn', firstPlayer);
-
-    // Generate a deck object, store it in the room data.
     rooms[roomCode].deck = new Deck();
 
-    // Deal out 8 cards to players.
     for (let i = 0; i <= 7; i++) {
       for (let player of rooms[roomCode].players) {
         dealCardsToPlayer(player);
       }
     }
 
-    // Shift out a card from the draw pile, the first card in play.
     const firstCardInPlay = rooms[roomCode].deck.drawPile.shift();
-
-    // Notify all players players of the first card in play.
     io.in(roomCode).emit('update card in play', firstCardInPlay);
-
-    // Move the card to the play pile.
     rooms[roomCode].deck.playPile.unshift(firstCardInPlay);
-
-    // Notify all players what the first card to play is.
     io.in(roomCode).emit('show first card in play', firstCardInPlay);
 
-    // Notify the player that they can start their turn.
-    io.to(firstPlayer.id).emit('turn start');
+    if (firstPlayer.isBot) {
+      const move = firstPlayer.decideMove({ currentSuit: rooms[roomCode].cardInPlay.suit, currentValue: rooms[roomCode].cardInPlay.value });
+      console.log("-------------Bot move---------")
+      console.log(move);
+      console.log("----------End Bot move---------")
+
+      if (move === null) {
+        onDrawCard.call(firstPlayer);
+      } else {
+        onCardPlayed.call(firstPlayer, move);
+      }
+    } else {
+      io.to(firstPlayer.id).emit('turn start');
+    }
   }
 }
 
@@ -272,11 +263,17 @@ function onGameStart() {
  * Notify players that a turn has been made, move to next player.
  */
 function onCardPlayed(card, wildcardSuit = false) {
-  const roomCode = this.player.roomCode;
+  const roomCode = this.player ? this.player.roomCode : null;
+  if (!roomCode || !rooms[roomCode]) {
+    console.error('Room code is invalid or room does not exist:', roomCode);
+    return;
+  }
   const deck = rooms[roomCode].deck;
 
   // Remove the card from the player's hand.
   this.player.removeCardFromHand(card, deck);
+
+  console.log('-----------281----------------');
 
   // Notify all clients how many cards a player has.
   io.in(roomCode).emit('update hand count', this.player, this.player.hand.length);
@@ -347,6 +344,8 @@ function onCardPlayed(card, wildcardSuit = false) {
 
   // Grab the next player to play.
   const player = rooms[roomCode].getNextPlayer();
+  console.log('getHereandGrapPlayer');
+
 
   // If a king of spades was played, deal 5 cards to the previous player.
   if (card.name === 'k of spades') {
@@ -375,14 +374,35 @@ function onCardPlayed(card, wildcardSuit = false) {
   io.in(roomCode).emit('show player turn', player);
 
   // Notify the first player to start the turn.
+  console.log('next player turn emiting');
+
   io.to(player.id).emit('turn start');
+  console.log('next player turn emited');
+  if (player.isBot) {
+    const move = player.decideMove({ currentSuit: rooms[roomCode].cardInPlay.suit, currentValue: rooms[roomCode].cardInPlay.value });
+    console.log("-------------Bot move---------")
+    console.log(move);
+    console.log("----------End Bot move---------")
+
+    if (move === null) {
+      onDrawCard.call(player);
+    } else {
+      onCardPlayed.call(player, move);
+    }
+  }
 }
 
 /**
  * Player has no playable cards, deal a new card and move on.
  */
 function onDrawCard() {
-  const roomCode = this.player.roomCode;
+  const roomCode = this.player ? this.player.roomCode : null;
+  if (!roomCode || !rooms[roomCode]) {
+    console.error('Room code is invalid or room does not exist:', roomCode);
+    return;
+  }
+
+  console.log('-----------390----------------');
 
   // Deal a new card to the player.
   dealCardsToPlayer(this.player);
@@ -590,10 +610,15 @@ function getPlayersInRoom(roomCode) {
  * Deal a number of cards to a player.
  */
 function dealCardsToPlayer(player, numberOfCards = 1) {
+  const roomCode = player.roomCode;
+  if (!rooms[roomCode]) {
+    console.error('Room does not exist:', roomCode);
+    return;
+  }
   // We want to keep track of how many cards are left to deal if the deck
   // needs to be shuffled.
   for (let cardsLeftToDeal = numberOfCards; cardsLeftToDeal >= 1; cardsLeftToDeal--) {
-    const cardToDeal = rooms[player.roomCode].deck.drawPile.shift();
+    const cardToDeal = rooms[player.roomCode].deck.drawPile.shift();     ///pierwszy problem
 
     if (cardToDeal) {
       // Move the card to player's hand array.
