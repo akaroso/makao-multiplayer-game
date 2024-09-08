@@ -13,6 +13,8 @@ export default class GameScene extends Phaser.Scene {
     super({
       key: 'GameScene',
     });
+
+    this.lastPlayedCard = null;
   }
 
   /**
@@ -240,30 +242,74 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Check if the card being played is a duplicate of the last played card.
+   */
+  isDuplicateCardPlay(cardObj) {
+    return (
+      this.lastPlayedCard &&
+      this.lastPlayedCard.name === cardObj.name &&
+      this.lastPlayedCard.suit === cardObj.suit
+    );
+  }
+
+  /**
    * Show that a player has played a card.
    */
   onShowCardPlayed(playerObj, cardObj) {
-    const player = this.getPlayerByID(playerObj.id);
-    const card = new Card(this, player.x, player.y, cardObj.suit, cardObj.value, cardObj.name);
-
-    // Add the card to the play pile.
-    this.deck.addCardToPlayPile(card);
-
-    // Play a sound.
-    this.sound.play(`card_slide_${Phaser.Math.RND.between(1, 3)}`);
-
-    this.tweens.add({
-      targets: card,
-      x: this.camera.centerX,
-      y: this.camera.centerY,
-      ease: 'Linear',
-      duration: 250,
-      onStart: () => {
-        // When the card is clicked, give it a slight rotation.
-        this.giveCardRandomAngle(card);
+    try {
+      // Validate the player object and card object
+      if (!playerObj || typeof playerObj !== 'object' || !playerObj.id) {
+        throw new Error('Invalid player object passed to onShowCardPlayed.');
       }
-    });
-  }
+      if (!cardObj || typeof cardObj !== 'object' || !cardObj.name) {
+        throw new Error('Invalid card object passed to onShowCardPlayed.');
+      }
+
+      // Check for duplicate card play
+      if (this.isDuplicateCardPlay(cardObj)) {
+        console.log('Duplicate card play detected, ignoring:', cardObj.name);
+        return;
+      }
+
+      // Update last played card to the current one
+      this.lastPlayedCard = cardObj;
+
+  
+      const player = this.getPlayerByID(playerObj.id);
+      if (!player) {
+        throw new Error(`Player with ID ${playerObj.id} not found.`);
+      }
+  
+      const card = new Card(this, player.x, player.y, cardObj.suit, cardObj.value, cardObj.name);
+      
+      // Ensure the deck and addCardToPlayPile method exist
+      if (!this.deck || typeof this.deck.addCardToPlayPile !== 'function') {
+        throw new Error('Deck or addCardToPlayPile method not found.');
+      }
+  
+      // Add the card to the play pile
+      this.deck.addCardToPlayPile(card);
+  
+      // Play a sound
+      this.sound.play(`card_slide_${Phaser.Math.RND.between(1, 3)}`);
+  
+      // Animate the card moving to the center of the screen
+      this.tweens.add({
+        targets: card,
+        x: this.camera.centerX,
+        y: this.camera.centerY,
+        ease: 'Linear',
+        duration: 250,
+        onStart: () => {
+          // When the card is clicked, give it a slight rotation
+          this.giveCardRandomAngle(card);
+        }
+      });
+    } catch (error) {
+      console.error('Error in onShowCardPlayed:', error);
+      // Optionally, show a message to the player or take other corrective actions
+    }
+  }  
 
   /**
    * Show that a player has drawn a card (in the event they could not play).
@@ -585,25 +631,42 @@ export default class GameScene extends Phaser.Scene {
    */
   makeCardInteractive(card) {
     card.setInteractive();
-
+  
     card.on('pointerdown', () => {
+  
+      // Ensure this block only executes once per card play.
+      if (this.yourTurn) {
+        this.yourTurn = false;
+      }
+  
+      // Check for duplicate card play
+      if (this.isDuplicateCardPlay(card)) {
+        console.log('Duplicate card play detected, ignoring:', card.name);
+        return;
+      }
+  
+      // Update last played card to the current one
+      this.lastPlayedCard = { name: card.name, suit: card.suit };
+  
       // Remove the turn text.
-      this.player.turnText.destroy();
-
+      if (this.player.turnText) {
+        this.player.turnText.destroy();
+      }
+  
       // Remove tint.
       card.clearTint();
-
+  
       // Remove the listeners on all cards.
       for (let card of this.player.hand) {
         card.removeAllListeners();
       }
-
+  
       // Remove the card from the player's hand array.
       this.player.removeCardFromHand(card, this.deck);
-
+  
       // Play a sound.
       this.sound.play(`card_slide_${Phaser.Math.RND.between(1, 3)}`);
-
+  
       // Move the card to the play pile.
       this.tweens.add({
         targets: card,
@@ -615,33 +678,32 @@ export default class GameScene extends Phaser.Scene {
           this.giveCardRandomAngle(card);
         }
       });
-
+  
       // Adjust the x position for all the cards in hand.
       this.moveCardsInHand();
-
+  
       // Check to see if a wildcard was played. The wildcard corresponds to your
       // countdown score. Since aces have a value of 'a', we have to perform a
       // separate condition check for that wildcard.
       if (this.checkCardWild(card)) {
         this.showWildCardMenu(card);
-      }
-      else {
+      } else {
+        console.log('Card played normally (else) - ', card.name);
         // Notify players that a card has been played.
         this.socket.emit('card played', card);
       }
     });
-
+  
     // When the user hovers the cursor over the card, set a tint and raise y.
     card.on('pointerover', () => {
       // Set a tint to show card is playable.
       if (this.checkCardWild(card)) {
         // Special tint for wildcards.
         card.setTint(0x55ffff, 0xff55ff, 0xffff55, 0x55ff55);
-      }
-      else {
+      } else {
         card.setTint(0xe3e3e3);
       }
-
+  
       // Move card up slightly.
       this.tweens.add({
         targets: card,
@@ -650,12 +712,12 @@ export default class GameScene extends Phaser.Scene {
         duration: 250,
       });
     });
-
+  
     // When the user's cursor leaves the card, remove the tint and lower y.
     card.on('pointerout', () => {
       // Remove tint.
       card.clearTint();
-
+  
       // Move the card back into hand.
       this.tweens.add({
         targets: card,
@@ -807,9 +869,9 @@ export default class GameScene extends Phaser.Scene {
       card.value == this.player.countdown ||
       //Dama na wszystko wszystko na dame
       card.value == 'q' ||
-      //this.currentCardInPlay.value == 'q' ||
+      this.currentCardInPlay.value == 'q';
       // Check if the countdown is at one (wildcard is ace and 'a' != 1).
-      (this.player.countdown == 1 && card.value == 'a');
+      //(this.player.countdown == 1 && card.value == 'a');
 
     return isPlayable;
   }
@@ -858,32 +920,35 @@ export default class GameScene extends Phaser.Scene {
    * Show the everso flashy & wonderful wildcard menu.
    */
   showWildCardMenu(card) {
+    if (this.wildCardMenu) {
+      this.wildCardMenu.destroy();
+      this.suitCardButtons.forEach(button => button.destroy());
+    }
+  
     this.suitCardButtons = [];
     this.wildCardMenu = this.add.dom(this.camera.centerX, this.camera.centerY, 'div', 'font-size: 20px;', 'CHOOSE A NEW SUIT');
     this.wildCardMenu.setClassName('wildcard-menu-container');
-
-    const suits = [ 'hearts', 'diamonds', 'spades', 'clubs' ];
-    const buttonText = [ '♥ HEARTS', '♦ DIAMONDS', '♠ SPADES', '♣ CLUBS' ];
+  
+    const suits = ['hearts', 'diamonds', 'spades', 'clubs'];
+    const buttonText = ['♥ HEARTS', '♦ DIAMONDS', '♠ SPADES', '♣ CLUBS'];
     let offset = 0;
-
+  
     for (let i = 0; i <= 3; i++) {
       let suitButton = this.add.dom((this.camera.centerX - 200) + offset, this.camera.centerY + 10, 'button', 'font-size: 16px;', buttonText[i]);
       suitButton.setClassName('suit-button');
       suitButton.addListener('click');
-
+  
       suitButton.on('click', () => {
         this.socket.emit('card played', card, suits[i]);
-
-        // Remove the menu & buttons.
+  
+        // Ensure the menu and buttons are destroyed
         this.wildCardMenu.destroy();
-
-        this.suitCardButtons.forEach((button) => {
-          button.destroy();
-        });
+        this.suitCardButtons.forEach(button => button.destroy());
+        this.wildCardMenu = null;
+        this.suitCardButtons = [];
       });
-
+  
       this.suitCardButtons.push(suitButton);
-
       offset += 135;
     }
   }
@@ -1114,6 +1179,13 @@ export default class GameScene extends Phaser.Scene {
    * Add draw card button to the scene.
    */
   addDrawCardButton() {
+    //
+
+    if (this.drawCardButton) {
+      this.drawCardButton.destroy();
+    }
+
+    //
     this.drawCardButton = this.add.dom(this.getGridRowPosition(3), this.getGridColumnPosition(4) - 80, 'button', 'font-size: 16px;', 'DRAW CARD');
     this.drawCardButton.setClassName('game-button');
     this.drawCardButton.addListener('click');

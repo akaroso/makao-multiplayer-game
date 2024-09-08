@@ -51,8 +51,18 @@ function setServerHandlers() {
     socket.on('add bot', (roomCode) => onAddBot(socket, roomCode)); // zmiana tutajj
     socket.on('player ready', onPlayerReady);
     socket.on('game start', onGameStart);
-    socket.on('card played', onCardPlayed);
-    socket.on('draw card', onDrawCard);
+    socket.on('card played', function(card, wildcardSuit = false) {
+      //console.log(`Card played event received for card: ${card.name}, at ${new Date().toISOString()}`);
+
+      const player = rooms[socket.player.roomCode].players.find(p => p.id === socket.id);
+      //console.log(player);
+      onCardPlayed.call(player, card, wildcardSuit);
+      //console.log(`Card played event processed for card: ${card.name}, at ${new Date().toISOString()}`);
+    });
+    socket.on('draw card', function() {
+      const player = rooms[socket.player.roomCode].players.find(p => p.id === socket.id);
+      onDrawCard.call(player);
+    });
     socket.on('player message', onPlayerMessage);
     socket.on('player quit', onPlayerQuit);
     socket.on('disconnect', onDisconnect);
@@ -242,195 +252,183 @@ function onGameStart() {
     rooms[roomCode].deck.playPile.unshift(firstCardInPlay);
     io.in(roomCode).emit('show first card in play', firstCardInPlay);
 
-    if (firstPlayer.isBot) {
-      const move = firstPlayer.decideMove({ currentSuit: rooms[roomCode].cardInPlay.suit, currentValue: rooms[roomCode].cardInPlay.value });
-      console.log("-------------Bot move---------")
-      console.log(move);
-      console.log("----------End Bot move---------")
-
-      if (move === null) {
-        onDrawCard.call(firstPlayer);
-      } else {
-        onCardPlayed.call(firstPlayer, move);
-      }
-    } else {
-      io.to(firstPlayer.id).emit('turn start');
-    }
+    handleNextPlayerTurn(firstPlayer, roomCode);
   }
 }
+
+function handleNextPlayerTurn(player, roomCode) {
+  console.log(`Handling turn for: ${player.name} (Bot: ${player.isBot})`);
+
+  if (player.isBot) {
+    // Reset currentPlayerId to allow bot to take a new turn
+    rooms[roomCode].currentPlayerId = null;
+
+    setTimeout(() => {
+      const move = player.decideMove({
+        currentSuit: rooms[roomCode].cardInPlay.suit,
+        currentValue: rooms[roomCode].cardInPlay.value,
+      });
+
+      if (!move) {
+        console.log(`Bot ${player.name} can't make a move, drawing a card...`);
+        onDrawCard.call(player);
+      } else {
+        console.log(`Bot ${player.name} plays: ${move.name}`);
+        if (move.value === 'a') {
+          console.log('Bot plays an ace with wildcard!');
+          onCardPlayed.call(player, move, 'clubs');
+        } else {
+          onCardPlayed.call(player, move);
+        }
+      }
+
+      // After the move, reset bot's state to allow for the next turn
+      rooms[roomCode].currentPlayerId = player.id;
+    }, 500); // Simulate thinking time
+  } else {
+    rooms[roomCode].currentPlayerId = player.id;
+    io.in(roomCode).emit('show player turn', player);
+    io.to(player.id).emit('turn start');
+  }
+}
+
+
 
 /**
  * Notify players that a turn has been made, move to next player.
  */
 function onCardPlayed(card, wildcardSuit = false) {
-  const roomCode = this.player ? this.player.roomCode : null;
-  if (!roomCode || !rooms[roomCode]) {
-    console.error('Room code is invalid or room does not exist:', roomCode);
-    return;
-  }
+  const roomCode = this.roomCode;
   const deck = rooms[roomCode].deck;
 
-  // Remove the card from the player's hand.
-  this.player.removeCardFromHand(card, deck);
+  // Prevent processing the same card twice by checking if it's already been played
+  if (this.lastPlayedCard && this.lastPlayedCard.name === card.name && this.lastPlayedCard.suit === card.suit) {
+      console.log('Duplicate card play detected, ignoring:', card.name);
+      return;
+  }
 
-  console.log('-----------281----------------');
+  // Store the card as the last played card
+  this.lastPlayedCard = card;
+
+  //console.log('On card played:', this.name);
+  //console.log("==========================card :", card);
+  //console.log("==========================wildcardSuit :", wildcardSuit);
+
+  this.removeCardFromHand(card, deck);
 
   // Notify all clients how many cards a player has.
-  io.in(roomCode).emit('update hand count', this.player, this.player.hand.length);
+  io.in(roomCode).emit('update hand count', this, this.hand.length);
 
-  // Check if the player's hand is empty, if so lower score and deal out more
-  // cards.
-  if (this.player.checkHandEmpty()) {
-    this.player.countdown--;
+  // Check if the player's hand is empty, if so lower score and deal out more cards.
+  if (this.checkHandEmpty()) {
+    this.countdown--;
 
     // Check to see if the game is over.
-    if (this.player.countdown === 0) {
+    if (this.countdown === 0) {
       // Notify players that the game is over and who the winner is.
-      io.in(roomCode).emit('game over', this.player);
-
+      io.in(roomCode).emit('game over', this);
       return; // Stop here.
     }
 
     // Notify everyone that a player's countdown score is being updated.
-    io.in(roomCode).emit('update countdown score', this.player);
+    io.in(roomCode).emit('update countdown score', this);
 
-    dealCardsToPlayer(this.player, this.player.countdown);
+    dealCardsToPlayer(this, this.countdown);
   }
 
   // If a wildcard was played, notify the players that the suit has changed.
   if (wildcardSuit) {
-    // Create a wildcard that we set as the current card in play.
-    const wildcard = {
-      value: false,
-      suit: wildcardSuit
-    }
-
-    // Update the card in play to our wildcard choice.
+    //console.log(wildcardSuit);
+    const wildcard = { value: false, suit: wildcardSuit };
+    //console.log('--------------wildcard:')
+    //console.log(wildcard);
     io.in(roomCode).emit('update card in play', wildcard);
     rooms[roomCode].cardInPlay = wildcard;
-  }
-  else {
-    // Update the card in play to the card that was last played.
+  } else {
     io.in(roomCode).emit('update card in play', card);
     rooms[roomCode].cardInPlay = card;
   }
 
-  // Let everyone know that the player has played a card.
-  this.broadcast.to(roomCode).emit('show card played', this.player, card);
+  io.in(roomCode).emit('show card played', this, card);
 
-  // If a king was played, reverse the direction of play if there are more
-  // than 2 players in the game.
   if (rooms[roomCode].players.length > 2 && card.value === 'k') {
-    rooms[roomCode].reverseDirection = (rooms[roomCode].reverseDirection) ? false : true;
-
-    // Tell the client that they have reversed the direction.
-    this.emit('game message', 'YOU REVERSED THE DIRECTION OF PLAY');
-
-    // Notify everyone else who reversed the direction.
-    this.broadcast.to(roomCode).emit('game message', `${this.player.name} REVERSED THE DIRECTION PLAY`);
+    rooms[roomCode].reverseDirection = !rooms[roomCode].reverseDirection;
+    io.in(roomCode).emit('game message', 'YOU REVERSED THE DIRECTION OF PLAY');
+    io.in(roomCode).emit(roomCode).emit('game message', `${this.name} REVERSED THE DIRECTION PLAY`);
   }
 
-  // If a 4 was played skip the next players turn.
   if (card.value === '4') {
-    // Skip the next player, get the name of the skipped player.
     const skippedPlayer = rooms[roomCode].getNextPlayer();
-
-    // Tell the client who's turn they skipped.
-    this.emit('game message', `YOU SKIPPED ${skippedPlayer.name}'S TURN`);
-
-    // Notify player that their turn was skipped.
-    io.to(skippedPlayer.id).emit('game message', `${this.player.name} SKIPPED YOUR TURN`);
+    io.in(roomCode).emit('game message', `YOU SKIPPED ${skippedPlayer.name}'S TURN`);
+    io.to(skippedPlayer.id).emit('game message', `${this.name} SKIPPED YOUR TURN`);
+  
+    console.log(`Player ${skippedPlayer.name} skipped.`);
+  
+    // Get the next player (after skipped player) and pass the turn
+    const nextPlayer = rooms[roomCode].getNextPlayer();
+    console.log(`Next player after skip: ${nextPlayer.name}`);
+    
+    // Emit turn info and handle the next player's turn
+    io.in(roomCode).emit('show player turn', nextPlayer);
+    io.to(nextPlayer.id).emit('turn start');
+  
+    // Handle bot turn if next player is a bot
+    return handleNextPlayerTurn(nextPlayer, roomCode);
   }
-
-  // Grab the next player to play.
+  
   const player = rooms[roomCode].getNextPlayer();
-  console.log('getHereandGrapPlayer');
 
-
-  // If a king of spades was played, deal 5 cards to the previous player.
   if (card.name === 'k of spades') {
-    const player = rooms[roomCode].getPreviousPlayer();
-    io.to(player.id).emit('game message', 'PICKUP 5 CARDS')
-    dealCardsToPlayer(player, 5);
+    const prevPlayer = rooms[roomCode].getPreviousPlayer();
+    io.to(prevPlayer.id).emit('game message', 'PICKUP 5 CARDS');
+    dealCardsToPlayer(prevPlayer, 5);
   }
 
-  // If a king of spades was played, deal 5 cards to the next player.
   if (card.name === 'k of hearts') {
-    io.to(player.id).emit('game message', 'PICKUP 5 CARDS')
+    io.to(player.id).emit('game message', 'PICKUP 5 CARDS');
     dealCardsToPlayer(player, 5);
   }
 
-
-  //If a 2 or 3 was played, deal two cards to the next player.
   if (card.value === '2' || card.value === '3') {
-    const cardsToDraw = (card.value === '2') ? 2 : 3; // 2 karty dla dwójki, 3 dla trójki
-
-    // Informowanie następnego gracza, że musi dobrać karty
+    const cardsToDraw = (card.value === '2') ? 2 : 3;
     io.to(player.id).emit('game message', `PICKUP ${cardsToDraw} CARDS`);
     dealCardsToPlayer(player, cardsToDraw);
   }
 
-  // Notify everyone who is going to play next.
   io.in(roomCode).emit('show player turn', player);
-
-  // Notify the first player to start the turn.
-  console.log('next player turn emiting');
-
   io.to(player.id).emit('turn start');
-  console.log('next player turn emited');
-  if (player.isBot) {
-    const move = player.decideMove({ currentSuit: rooms[roomCode].cardInPlay.suit, currentValue: rooms[roomCode].cardInPlay.value });
-    console.log("-------------Bot move---------")
-    console.log(move);
-    console.log("----------End Bot move---------")
+  console.log('nex player turn named:', player.name);
 
-    if (move === null) {
-      onDrawCard.call(player);
-    } else {
-      onCardPlayed.call(player, move);
-    }
-  }
+  return handleNextPlayerTurn(player, roomCode);
 }
 
 /**
  * Player has no playable cards, deal a new card and move on.
  */
 function onDrawCard() {
-  const roomCode = this.player ? this.player.roomCode : null;
-  if (!roomCode || !rooms[roomCode]) {
-    console.error('Room code is invalid or room does not exist:', roomCode);
-    return;
-  }
+  const roomCode = this.roomCode;
+  console.log(`${this.name} is drawing a card...`);
 
-  console.log('-----------390----------------');
+  dealCardsToPlayer(this);
+  io.in(roomCode).emit('show card draw', this);
 
-  // Deal a new card to the player.
-  dealCardsToPlayer(this.player);
-
-  // Let everyone know that the player has drawn a card a card.
-  this.broadcast.to(roomCode).emit('show card draw', this.player);
-
-  // Grab the card that was dealt to the player and check to see if last card
-  // in play is playable. If the card is playable, allow the card to be played.
-  // Otherwise, move on to the next player.
-  const cardDealt = this.player.getLastCardInHand();
-  const isPlayable = checkCardPlayable(cardDealt, rooms[roomCode].cardInPlay, this.player);
+  const cardDealt = this.getLastCardInHand();
+  const isPlayable = checkCardPlayable(cardDealt, rooms[roomCode].cardInPlay, this);
 
   if (isPlayable) {
-    // Notify the player they can play the card.
-    io.to(this.player.id).emit('play drawn card', cardDealt);
-  }
-  else {
-    // Grab the next player to play.
+    console.log(`${this.name} drew a playable card: ${cardDealt.name}`);
     const player = rooms[roomCode].getNextPlayer();
-
-    // Notify everyone who is going to play next.
+    io.to(this.id).emit('play drawn card', cardDealt);
+    return handleNextPlayerTurn(player, roomCode);
+  } else {
+    console.log(`${this.name} drew a non-playable card, passing turn.`);
+    const player = rooms[roomCode].getNextPlayer();
     io.in(roomCode).emit('show player turn', player);
-
-    // Let the player start their turn.
     io.to(player.id).emit('turn start');
+    return handleNextPlayerTurn(player, roomCode);
   }
 }
+
 
 /**
  * When a player sends a message, send it to everyone.
@@ -610,42 +608,25 @@ function getPlayersInRoom(roomCode) {
  * Deal a number of cards to a player.
  */
 function dealCardsToPlayer(player, numberOfCards = 1) {
-  const roomCode = player.roomCode;
-  if (!rooms[roomCode]) {
-    console.error('Room does not exist:', roomCode);
-    return;
-  }
-  // We want to keep track of how many cards are left to deal if the deck
-  // needs to be shuffled.
-  for (let cardsLeftToDeal = numberOfCards; cardsLeftToDeal >= 1; cardsLeftToDeal--) {
-    const cardToDeal = rooms[player.roomCode].deck.drawPile.shift();     ///pierwszy problem
+  const deck = rooms[player.roomCode].deck;
 
-    if (cardToDeal) {
-      // Move the card to player's hand array.
-      player.addCardToHand(cardToDeal);
-
-      // Send the card to the player's client.
-      io.to(player.id).emit('add card to hand', cardToDeal);
-
-      // Notify all clients how many cards a player has.
+  for (let i = 0; i < numberOfCards; i++) {
+    const card = deck.drawPile.shift();
+    if (card) {
+      player.addCardToHand(card);
+      io.to(player.id).emit('add card to hand', card);
       io.in(player.roomCode).emit('update hand count', player, player.hand.length);
     }
-    else {
-      // No cards left to draw, shuffle and try again.
-      rooms[player.roomCode].deck.shuffleDeck();
+  }
 
-      // Notify the players that the deck is being shuffled.
-      io.in(player.roomCode).emit('shuffle deck');
-
-      // If there are no cards left in the draw pile, stop.
-      if (rooms[player.roomCode].deck.drawPile.length === 0) {
-        return;
-      }
-      else {
-        // Retry dealing a card to the player.
-        cardsLeftToDeal++;
-      }
-    }
+  if (deck.drawPile.length === 0) {
+    deck.shuffleDeck();
+    io.in(player.roomCode).emit('shuffle deck');
+  }
+  //console.log('deal card to:', player.name);
+  if (player.isBot)
+  {
+    //console.log('bot get the cart');
   }
 }
 
@@ -654,16 +635,15 @@ function dealCardsToPlayer(player, numberOfCards = 1) {
  */
 function checkCardPlayable(card, currentCardInPlay, player) {
   const isPlayable =
-    // Check if card matches the current suit in play.
     card.suit == currentCardInPlay.suit ||
-    // Check if card matches the current value in play.
     card.value == currentCardInPlay.value ||
-    // Check if the card is wild (wildcard = countdown score).
-    card.value == player.countdown ||
-    // Special case for aces since 'a' isn't a real number. do usuniecia
-    (player.countdown == 1 && card.value == 'a') ||
-    //queens
-    card.value == 'q';        
+    card.value == 'q' ||
+    (card.value == '2' && currentCardInPlay.value == '2') ||
+    (card.value == '3' && currentCardInPlay.value == '3') ||
+    (card.value == '4' && currentCardInPlay.value == '4') ||
+    (card.value == 'j') ||
+    (card.value == 'k' && (currentCardInPlay.value == 'k' || (currentCardInPlay.value == 'a' && (currentCardInPlay.suit == 'hearts' || currentCardInPlay.suit == 'spades')))) ||
+    (card.value == 'a');
 
   return isPlayable;
 }
