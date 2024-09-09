@@ -11,20 +11,20 @@ import Deck from './objects/Deck';
 import Player from './objects/Player';
 import BotPlayer from './objects/BotPlayer';
 
-// Array to track active rooms.
+// Tablica do śledzenia aktywnych pokojów.
 let rooms = [];
 
-// Server setup.
+// Konfiguracja serwera.
 const app = Express();
 const server = Http.Server(app);
 const io = SocketIO(server);
 const port = process.env.PORT || 3000;
 
-// Fire up Helmet and Compression for better Express security and performance.
+// Odpalenie Helmet i Compression dla bezpieczeństwa i wydajności
 app.use(Helmet());
 app.use(Compression());
 
-// Add static file middleware (to serve static files).
+// Dodanie middleware do obsługi plików statycznych (do serwowania plików statycznych).
 app.use('/public', Express.static(Path.join(__dirname, '../public')));
 
 // Request router.
@@ -32,16 +32,16 @@ app.get('/', function(request, response) {
   response.sendFile(Path.join(__dirname, '../public/index.html'));
 })
 
-// Tell server to start listening for connections.
+// Uruchom serwer i zacznij nasłuchiwać połączeń.
 server.listen(port, () => {
   console.log('\n🕺 server init complete, listening for connections on port ' + port + ' 🕺\n');
 
-  // Start listening for events from client.
+  // Rozpocznij nasłuchiwanie wydarzeń z klienta.
   setServerHandlers();
 });
 
 /**
- * Setup server event handlers.
+ * Ustawienie obsługi wydarzeń serwera.
  */
 function setServerHandlers() {
   io.on('connection', (socket) => {
@@ -52,12 +52,9 @@ function setServerHandlers() {
     socket.on('player ready', onPlayerReady);
     socket.on('game start', onGameStart);
     socket.on('card played', function(card, wildcardSuit = false) {
-      //console.log(`Card played event received for card: ${card.name}, at ${new Date().toISOString()}`);
 
       const player = rooms[socket.player.roomCode].players.find(p => p.id === socket.id);
-      //console.log(player);
       onCardPlayed.call(player, card, wildcardSuit);
-      //console.log(`Card played event processed for card: ${card.name}, at ${new Date().toISOString()}`);
     });
     socket.on('draw card', function() {
       const player = rooms[socket.player.roomCode].players.find(p => p.id === socket.id);
@@ -70,22 +67,22 @@ function setServerHandlers() {
 }
 
 /**
- * Handle creating a new game.
+ * Obsługa tworzenia nowej gry.
  */
 function onNewGame(roomCode) {
-  // If no room code has been provided, generate a random one.
+  // Jeśli nie podano kodu pokoju, wygeneruj losowy.
   if (!roomCode) {
     Crypto.randomBytes(2, (err, buf) => {
-      // Generate a random room code.
+      // Wygeneruj losowy kod pokoju.
       const roomCode = buf.toString('hex');
 
-      // Add room to rooms array.
+      // Dodaj pokój do tablicy rooms.
       rooms[roomCode] = new Room(roomCode);
 
-      // Connect the user to the room.
+      // Połącz użytkownika z pokojem.
       this.join(roomCode);
 
-      // Send the room code back to the client.
+      // Wyślij kod pokoju z powrotem do klienta.
       this.emit('new game', roomCode);
 
       this.roomCode = roomCode;
@@ -95,17 +92,17 @@ function onNewGame(roomCode) {
     const foundRoom = Object.keys(rooms).find(room => room === roomCode);
 
     if (foundRoom) {
-      // Notify the user that the room already exists.
+      // Powiadom użytkownika, że pokój już istnieje.
       this.emit('room error', 'ROOM ALREADY EXISTS');
     }
     else {
-      // Add room to rooms array.
+      // Dodaj pokój do tablicy rooms.
       rooms[roomCode] = new Room(roomCode);
 
-      // Connect the user to the room.
+      // Połącz użytkownika z pokojem.
       this.join(roomCode);
 
-      // Send the room code back to the client.
+      // Wyślij kod pokoju z powrotem do klienta.
       this.emit('new game', roomCode);
 
       this.roomCode = roomCode;
@@ -114,13 +111,12 @@ function onNewGame(roomCode) {
 }
 
 /**
- * Handle adding a bot to the game.
+ * Obsługa dodawania bota do gry.
  */
 function onAddBot(socket, roomCode) {
   if (rooms[roomCode]) {
     const botSocket = {
       emit: (event, data) => {
-        console.log(`Bot emitting event ${event} with data:`, data);
         io.to(roomCode).emit(event, data);
       },
       id: `bot-${Date.now()}`
@@ -143,82 +139,81 @@ function onAddBot(socket, roomCode) {
 }
 
 /**
- * Handle joining an existing game.
+ * Obsługa dołączenia do istniejącej gry.
  */
 function onJoinRequest(roomCode) {
-  // Check to see if the supplied room code is actively in use.
+  // Sprawdź, czy podany kod pokoju jest aktualnie w użyciu.
   const foundRoom = Object.keys(rooms).find(room => room === roomCode);
 
-  // If room code is valid and the game hasn't started, connect the user.
+  // Jeśli kod pokoju jest prawidłowy i gra nie została rozpoczęta, połącz użytkownika.
   if (foundRoom) {
     const socketsInRoom = getSocketsInRoom(roomCode).length;
 
-    // If there are less than 4 sockets connected to the room, connect.
+    // Jeśli w pokoju jest mniej niż 4 połączenia, połącz.
     if (socketsInRoom < 4) {
       if (rooms[foundRoom].gameStarted === false) {
-        // Connect the user to the room.
+        // Połącz użytkownika z pokojem.
         this.join(roomCode);
 
-        // Send the room code back to the client.
+        // Wyślij kod pokoju z powrotem do klienta.
         this.emit('join game', roomCode);
       }
       else {
-        // Notify the user that the room's game is in progress.
+        // Powiadom użytkownika, że gra w pokoju jest w toku.
         this.emit('room error', 'GAME IS IN PROGRESS');
       }
     }
     else {
-      // Notify the user that the room is full.
+      // Powiadom użytkownika, że pokój jest pełny.
       this.emit('room error', 'ROOM IS FULL');
     }
   }
   else {
-    // Notify the user that the room does not exist.
+    // Powiadom użytkownika, że pokój nie istnieje.
     this.emit('room error', 'GAME DOES NOT EXIST');
   }
 }
 
 /**
- * Notify others that a new player has connected.
+ * Powiadom innych, że nowy gracz się połączył.
  *
- * Send the client back a list of existing players in the room.
+ * Wyślij klientowi listę istniejących graczy w pokoju.
  */
 function onNewPlayer(playerObj, roomCode) {
   const player = new Player(this.id, playerObj.name, roomCode, playerObj.textureMap);
   this.player = player;
 
-  // Build up a list of all current players, send the data to the client.
+  // Zbuduj listę wszystkich obecnych graczy i wyślij dane do klienta.
   this.emit('get players', getPlayersInRoom(roomCode));
 
-  // Add player to the room's players array.
+  // Dodaj gracza do tablicy graczy w pokoju.
   rooms[roomCode].players.push(this.player);
 
-  // Broadcast new player to other new players.
+  // Powiadom innych graczy o nowym graczu.
   this.broadcast.to(roomCode).emit('new player', this.player);
 }
 
 /**
- * Notify others that a player is ready to smack down.
+ * Powiadom innych, że gracz jest gotowy do gry.
  *
- * If all players are ready, randomly pick a player to go first and notify all
- * players that the game has stared.
+ * Jeśli wszyscy gracze są gotowi, losowo wybierz pierwszego gracza i powiadom wszystkich, że gra się rozpoczęła.
  */
 function onPlayerReady() {
   const roomCode = this.player.roomCode;
 
-  // The player is ready to smack down.
+  // Gracz jest gotowy do gry.
   this.player.ready = true;
 
-  // Let everyone else know the player is ready.
+  // Powiadom wszystkich, że gracz jest gotowy.
   this.broadcast.to(roomCode).emit('show player ready', this.player);
 
-  // Check to see if all players are ready.
+  // Sprawdź, czy wszyscy gracze są gotowi.
   if (checkAllPlayersReady(roomCode)) {
     io.in(roomCode).emit('start countdown');
 
     rooms[roomCode].countdownStarted = true;
 
-    // Clear the player's texture map to clean up JSON payload.
+    // Wyczyść mapę tekstur gracza, aby oczyścić przesyłane dane JSON.
     for (let player of getPlayersInRoom(roomCode)) {
       player.textureMap = [];
     }
@@ -226,7 +221,7 @@ function onPlayerReady() {
 }
 
 /**
- * Start the game when each player's countdown timer is complete.
+ * Rozpocznij grę, gdy timer odliczania każdego gracza się zakończy.
  */
 function onGameStart() {
   const roomCode = this.player.roomCode;
@@ -257,8 +252,6 @@ function onGameStart() {
 }
 
 function handleNextPlayerTurn(player, roomCode) {
-  console.log(`Handling turn for: ${player.name} (Bot: ${player.isBot})`);
-
   if (player.isBot) {
     // Reset currentPlayerId to allow bot to take a new turn
     rooms[roomCode].currentPlayerId = null;
@@ -270,15 +263,14 @@ function handleNextPlayerTurn(player, roomCode) {
       });
 
       if (!move) {
-        console.log(`Bot ${player.name} can't make a move, drawing a card...`);
         onDrawCard.call(player);
       } else {
-        console.log(`Bot ${player.name} plays: ${move.name}`);
-        if (move.value === 'a') {
-          console.log('Bot plays an ace with wildcard!');
-          onCardPlayed.call(player, move, 'clubs');
+        if (move.card.value === 'a') {
+          // Bot wybiera najlepszy kolor (suit) na podstawie kart w ręku
+          const bestSuit = move.wildcardSuit;
+          onCardPlayed.call(player, move.card, bestSuit);
         } else {
-          onCardPlayed.call(player, move);
+          onCardPlayed.call(player, move.card);
         }
       }
 
@@ -295,53 +287,46 @@ function handleNextPlayerTurn(player, roomCode) {
 
 
 /**
- * Notify players that a turn has been made, move to next player.
+ * Powiadom graczy, że ruch został wykonany, przejdź do następnego gracza.
  */
 function onCardPlayed(card, wildcardSuit = false) {
   const roomCode = this.roomCode;
   const deck = rooms[roomCode].deck;
 
-  // Prevent processing the same card twice by checking if it's already been played
+  // Zapobiegaj przetwarzaniu tej samej karty dwukrotnie, sprawdzając, czy została już zagrana
   if (this.lastPlayedCard && this.lastPlayedCard.name === card.name && this.lastPlayedCard.suit === card.suit) {
       console.log('Duplicate card play detected, ignoring:', card.name);
       return;
   }
 
-  // Store the card as the last played card
+  // Zapisz kartę jako ostatnio zagraną kartę
   this.lastPlayedCard = card;
-
-  //console.log('On card played:', this.name);
-  //console.log("==========================card :", card);
-  //console.log("==========================wildcardSuit :", wildcardSuit);
 
   this.removeCardFromHand(card, deck);
 
-  // Notify all clients how many cards a player has.
+  // Powiadom wszystkich klientów, ile kart ma gracz.
   io.in(roomCode).emit('update hand count', this, this.hand.length);
 
-  // Check if the player's hand is empty, if so lower score and deal out more cards.
+  // Sprawdź, czy ręka gracza jest pusta, jeśli tak, obniż wynik i rozdaj więcej kart.
   if (this.checkHandEmpty()) {
     this.countdown--;
 
-    // Check to see if the game is over.
+    // Sprawdź, czy gra się skończyła.
     if (this.countdown === 0) {
-      // Notify players that the game is over and who the winner is.
+      // Powiadom graczy, że gra się zakończyła i kto wygrał.
       io.in(roomCode).emit('game over', this);
       return; // Stop here.
     }
 
-    // Notify everyone that a player's countdown score is being updated.
     io.in(roomCode).emit('update countdown score', this);
 
     dealCardsToPlayer(this, this.countdown);
   }
 
-  // If a wildcard was played, notify the players that the suit has changed.
+  // Jeśli została zagrana karta zmieniająca kolor, powiadom graczy, że kolor się zmienił.
   if (wildcardSuit) {
-    //console.log(wildcardSuit);
     const wildcard = { value: false, suit: wildcardSuit };
-    //console.log('--------------wildcard:')
-    //console.log(wildcard);
+
     io.in(roomCode).emit('update card in play', wildcard);
     rooms[roomCode].cardInPlay = wildcard;
   } else {
@@ -351,6 +336,7 @@ function onCardPlayed(card, wildcardSuit = false) {
 
   io.in(roomCode).emit('show card played', this, card);
 
+  // Obsługa odwrócenia kierunku (3+ graczy)
   if (rooms[roomCode].players.length > 2 && card.value === 'k') {
     rooms[roomCode].reverseDirection = !rooms[roomCode].reverseDirection;
     io.in(roomCode).emit('game message', 'YOU REVERSED THE DIRECTION OF PLAY');
@@ -361,25 +347,27 @@ function onCardPlayed(card, wildcardSuit = false) {
     const skippedPlayer = rooms[roomCode].getNextPlayer();
     io.in(roomCode).emit('game message', `YOU SKIPPED ${skippedPlayer.name}'S TURN`);
     io.to(skippedPlayer.id).emit('game message', `${this.name} SKIPPED YOUR TURN`);
-  
-    console.log(`Player ${skippedPlayer.name} skipped.`);
-  
-    // Get the next player (after skipped player) and pass the turn
-    const nextPlayer = rooms[roomCode].getNextPlayer();
-    console.log(`Next player after skip: ${nextPlayer.name}`);
     
-    // Emit turn info and handle the next player's turn
+    // Pobierz następnego gracza (po pominiętym) i przekaż turę
+    const nextPlayer = rooms[roomCode].getNextPlayer();
+    
+    // Emituj informacje o turze i obsłuż turę następnego gracza
     io.in(roomCode).emit('show player turn', nextPlayer);
     io.to(nextPlayer.id).emit('turn start');
   
-    // Handle bot turn if next player is a bot
+    // Obsługa tury bota, jeśli następny gracz jest botem
     return handleNextPlayerTurn(nextPlayer, roomCode);
   }
   
   const player = rooms[roomCode].getNextPlayer();
 
   if (card.name === 'k of spades') {
-    const prevPlayer = rooms[roomCode].getPreviousPlayer();
+    let prevPlayer = rooms[roomCode].getPreviousPlayer();
+    // Upewnij się, że poprzedni gracz nie jest tym, który zagrał kartę (dla 2 graczy)
+    if (prevPlayer.id === this.id) {
+      prevPlayer = rooms[roomCode].getNextPlayer();
+    }
+
     io.to(prevPlayer.id).emit('game message', 'PICKUP 5 CARDS');
     dealCardsToPlayer(prevPlayer, 5);
   }
@@ -397,17 +385,15 @@ function onCardPlayed(card, wildcardSuit = false) {
 
   io.in(roomCode).emit('show player turn', player);
   io.to(player.id).emit('turn start');
-  console.log('nex player turn named:', player.name);
 
   return handleNextPlayerTurn(player, roomCode);
 }
 
 /**
- * Player has no playable cards, deal a new card and move on.
+ * Gracz nie ma grywalnych kart, dobierz nową kartę i przejdź dalej.
  */
 function onDrawCard() {
   const roomCode = this.roomCode;
-  console.log(`${this.name} is drawing a card...`);
 
   dealCardsToPlayer(this);
   io.in(roomCode).emit('show card draw', this);
@@ -431,7 +417,7 @@ function onDrawCard() {
 
 
 /**
- * When a player sends a message, send it to everyone.
+ * Gdy gracz wyśle wiadomość, wyślij ją wszystkim.
  */
 function onPlayerMessage(message) {
   const player = this.player;
@@ -440,7 +426,7 @@ function onPlayerMessage(message) {
 }
 
 /**
- * When a player quits, notify everyone else in the room.
+ * Gdy gracz opuszcza grę, powiadom wszystkich innych w pokoju.
  */
 function onPlayerQuit() {
   const player = this.player;
@@ -449,7 +435,7 @@ function onPlayerQuit() {
 }
 
 /**
- * Handle user disconnection, notify others who left.
+ * Obsługa rozłączenia użytkownika, powiadom innych, kto odszedł.
  */
 function onDisconnect() {
   // Check to see if the socket has a player data object.
@@ -457,32 +443,32 @@ function onDisconnect() {
     const roomCode = this.player.roomCode;
     const players = getPlayersInRoom(roomCode);
 
-    // Check to see if the room is empty.
+    // Sprawdź, czy pokój jest pusty.
     if (players.length === 0) {
-      // If the room is empty, remove it from the map.
+      // Jeśli pokój jest pusty, usuń go z mapy.
       delete rooms[roomCode];
 
       return; // Stop here.
     }
     else {
-      // Unready all the players.
+      // Oznacz wszystkich graczy jako niegotowych.
       for (let player of players) {
         player.ready = false;
       }
 
-      // Tell everyone the player has disconnected.
+      // Powiedz wszystkim, że gracz się rozłączył.
       io.in(roomCode).emit('player disconnect', this.player);
 
-      // If someone leaves during the start game countdown, stop the timer and
-      // reset the countdown-related variables.
+      // Jeśli ktoś opuści grę podczas odliczania do rozpoczęcia gry, zatrzymaj timer i
+      // zresetuj zmienne związane z odliczaniem.
       if (rooms[roomCode].countdownStarted) {
         rooms[roomCode].countdownStarted = false;
         rooms[roomCode].startGameCounter = 0;
       }
 
       if (rooms[roomCode].gameStarted && !rooms[roomCode].gameOver) {
-        // If there's only one player remaining and the game has started,
-        // game ogre.
+        // Jeśli w pokoju został tylko jeden gracz i gra się rozpoczęła,
+        // gra się kończy.
         if (rooms[roomCode].players.length === 2) {
           let winner;
 
@@ -492,47 +478,44 @@ function onDisconnect() {
             }
           }
 
-          // Notify player that the game is over and that they win!
+          // Powiadom gracza, że gra się zakończyła i że wygrał!
           io.in(roomCode).emit('game over', winner);
 
-          return; // Stop here, I think.
+          return; // Stop here
         }
 
-        // Put the player's hand back in the play pile so that cards go back into
-        // circulation.
+        // Zwróć karty z ręki gracza z powrotem do stosu, aby karty wróciły do obiegu
         const deck = rooms[roomCode].deck;
 
         for (let card of this.player.hand) {
           deck.addCardToPlayPile(card);
         }
 
-        // Grab the player turn so we can check if player disconnected on their
-        // turn.
+        // Pobierz turę gracza, aby sprawdzić, czy gracz rozłączył się podczas swojej tury
         const playerTurn = rooms[roomCode].playerTurn;
 
-        // If a player disconnected on their turn, move to the next player in
-        // order.
+        // Jeśli gracz rozłączył się w swojej turze, przejdź do następnego gracza w kolejności
         if (rooms[roomCode].players[playerTurn].id == this.id) {
-          // Grab the next player to play.
+          // Pobierz następnego gracza do gry.
           const player = rooms[roomCode].getNextPlayer();
 
-          // Notify everyone who is now playing.
+          // Powiadom wszystkich, kto teraz gra.
           io.in(roomCode).emit('show player turn', player);
 
-          // Notify the player to start the turn.
+          // Powiadom gracza, aby rozpoczął turę.
           io.to(player.id).emit('turn start');
         }
       }
 
-      // Remove player from room's player order array.
+      // Usuń gracza z tablicy graczy w pokoju.
       rooms[roomCode].removePlayerByID(this.id);
     }
   }
   else {
-    // Adding an extra check here to see if the socket disconnected without
-    // creating a player object (drawing step).
+    // Dodatkowe sprawdzenie, by zobaczyć, czy socket rozłączyło się bez
+    // utworzenia obiektu gracza (krok doboru).
     if (this.roomCode) {
-      // If the room is empty after the socket disconnects, remove the room.
+      // Jeśli pokój jest pusty po rozłączeniu socketa, usuń pokój.
       if (getSocketsInRoom(this.roomCode).length === 0) {
         delete rooms[this.roomCode];
       }
@@ -541,16 +524,16 @@ function onDisconnect() {
 }
 
 /**
- * Check and return whether all players are ready to play.
+ * Sprawdź i zwróć, czy wszyscy gracze są gotowi do gry.
  */
 function checkAllPlayersReady(roomCode) {
   const players = getPlayersInRoom(roomCode);
 
   let ready = true;
 
-  // Only continue if there is 2 or more players.
+  // Kontynuuj tylko wtedy, gdy jest 2 lub więcej graczy.
   if (players.length >= 2) {
-    // See if any players are not ready.
+    // Sprawdź, czy któryś z graczy nie jest gotowy.
     for (let player of players) {
       if (player.ready === false) {
         ready = false;
@@ -564,7 +547,7 @@ function checkAllPlayersReady(roomCode) {
 }
 
 /**
- * Shuffle player order using Fisher Yates implementation.
+ * Przetasowanie kolejności graczy za pomocą algorytmu Fisher-Yates.
  */
 function shufflePlayerOrder(roomCode) {
   const players = getPlayersInRoom(roomCode);
@@ -581,14 +564,14 @@ function shufflePlayerOrder(roomCode) {
 }
 
 /**
- * Return all sockets currently connected to a room.
+ * Zwraca wszystkie sockety aktualnie połączone z pokojem.
  */
 function getSocketsInRoom(roomCode) {
   const sockets = [];
 
-  // Check to see if anyone is even in the room.
+  // Sprawdź, czy ktoś w ogóle jest w pokoju.
   if (io.sockets.adapter.rooms[roomCode] !== undefined) {
-    // Loop over sockets connected to a room, return all players found.
+    // Iteruj po socketach podłączonych do pokoju, zwróć wszystkich znalezionych graczy.
     Object.keys(io.sockets.adapter.rooms[roomCode].sockets).forEach(socket => {
       sockets.push(socket);
     });
@@ -598,14 +581,14 @@ function getSocketsInRoom(roomCode) {
 }
 
 /**
- * Return all players currently connected to a room.
+ * Zwraca wszystkich graczy aktualnie połączonych z pokojem.
  */
 function getPlayersInRoom(roomCode) {
   return rooms[roomCode] ? rooms[roomCode].players : [];
 }
 
 /**
- * Deal a number of cards to a player.
+ * Rozdaj określoną liczbę kart graczowi.
  */
 function dealCardsToPlayer(player, numberOfCards = 1) {
   const deck = rooms[player.roomCode].deck;
@@ -623,15 +606,10 @@ function dealCardsToPlayer(player, numberOfCards = 1) {
     deck.shuffleDeck();
     io.in(player.roomCode).emit('shuffle deck');
   }
-  //console.log('deal card to:', player.name);
-  if (player.isBot)
-  {
-    //console.log('bot get the cart');
-  }
 }
 
 /**
- * Check to see if a card is playable, otherwise return false.
+ * Sprawdź, czy karta może zostać zagrana, w przeciwnym razie zwróć false.
  */
 function checkCardPlayable(card, currentCardInPlay, player) {
   const isPlayable =

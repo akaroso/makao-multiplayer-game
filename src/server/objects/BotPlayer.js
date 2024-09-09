@@ -21,12 +21,44 @@ export default class BotPlayer extends Player {
     }
 
     if (playableCards.length > 0) {
-      // Sort cards by value priority (special cards first)
+      // Priorytet: najpierw atakujące karty (2, 3), później karty specjalne (a, k)
       playableCards.sort(this.sortByPriority);
-      return playableCards[0];
+
+      const bestCard = playableCards[0];
+
+      // Logika dla wildcarda (np. as): bot wybiera kolor, który ma najwięcej w ręku
+      if (bestCard.value === 'a') {
+        const bestSuit = this.chooseBestSuit();
+        console.log(`Bot ${this.name} chooses wildcard suit: ${bestSuit}`);
+        return { card: bestCard, wildcardSuit: bestSuit };
+      }
+
+      return { card: bestCard, wildcardSuit: null };
     }
 
     return null;
+  }
+
+  chooseBestSuit() {
+    const suitCount = { spades: 0, hearts: 0, diamonds: 0, clubs: 0 };
+
+    // Liczymy ile bot ma kart w każdym kolorze
+    for (let card of this.hand) {
+      suitCount[card.suit]++;
+    }
+
+    // Wybieramy kolor, którego bot ma najwięcej
+    let bestSuit = 'spades'; // Domyślnie
+    let maxCount = 0;
+
+    for (let suit in suitCount) {
+      if (suitCount[suit] > maxCount) {
+        maxCount = suitCount[suit];
+        bestSuit = suit;
+      }
+    }
+
+    return bestSuit;
   }
 
   canPlayCard(card, gameState) {
@@ -42,22 +74,6 @@ export default class BotPlayer extends Player {
       card.value === 'j'; // Walet żąda karty
 
     return isPlayable;
-  }
-
-  makeMove(gameState) {
-    const move = this.decideMove(gameState);
-    if (move) {
-      if (move.value === 'a') {
-        // As zmienia kolor - wybieramy losowy kolor
-        const suits = ['spades', 'hearts', 'diamonds', 'clubs'];
-        const randomSuit = suits[Math.floor(Math.random() * suits.length)];
-        this.socket.emit('bot card played', { card: move, wildcardSuit: randomSuit, botId: this.id, roomCode: this.roomCode });
-      } else {
-        this.socket.emit('bot card played', { card: move, botId: this.id, roomCode: this.roomCode });
-      }
-    } else {
-      this.socket.emit('bot draw card', { botId: this.id, roomCode: this.roomCode });
-    }
   }
 
   sortByPriority(cardA, cardB) {
